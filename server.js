@@ -8,8 +8,11 @@ const app = express()
 // CORS configuration - allow Vercel deployments
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
   'https://jaibabakedar.com',
-  'https://www.jaibabakedar.com'
+  'https://www.jaibabakedar.com',
+  'https://admin.jaibabakedar.com'
 ]
 
 // Allow all Vercel preview deployments
@@ -39,6 +42,9 @@ app.use(express.json())
 app.use('/api/auth', require('./routes/auth'))
 app.use('/api/dhams', require('./routes/dhams'))
 app.use('/api/orders', require('./routes/orders'))
+app.use('/api/enquiries', require('./routes/enquiries'))
+app.use('/api/admin', require('./routes/admin'))
+app.use('/api/reviews', require('./routes/reviews'))
 
 app.get('/', (req, res) => res.json({ message: 'CharDham Yatra API running 🕉️' }))
 
