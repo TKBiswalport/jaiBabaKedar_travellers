@@ -33,7 +33,7 @@ router.post('/', async (req, res) => {
     const enquiry = await Enquiry.create({
       name: name.trim(),
       phone: phone.trim(),
-      travelDate,
+      travelDate: new Date(travelDate),
       passengers: Math.max(1, Number(passengers) || 1),
       message: message?.trim() || '',
       vehicleId,

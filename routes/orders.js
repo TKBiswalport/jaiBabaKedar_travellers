@@ -21,11 +21,7 @@ router.get('/seats', async (req, res) => {
     const start = new Date(date); start.setHours(0, 0, 0, 0)
     const end = new Date(date); end.setHours(23, 59, 59, 999)
 
-    const orders = await Order.find({
-      travelDate: { $gte: start, $lte: end },
-      vehicleId,
-      status: { $ne: 'cancelled' },
-    }).select('seats')
+    const orders = await Order.findActiveForVehicle(vehicleId, start, end)
 
     res.json({ bookedSeats: orders.flatMap((o) => o.seats) })
   } catch (err) {
@@ -36,7 +32,7 @@ router.get('/seats', async (req, res) => {
 // GET /api/orders/my
 router.get('/my', protect, async (req, res) => {
   try {
-    const orders = await Order.find({ user: req.user._id }).sort({ createdAt: -1 })
+    const orders = await Order.findByUser(req.user._id)
     res.json(orders)
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch orders' })
@@ -47,7 +43,7 @@ router.get('/my', protect, async (req, res) => {
 router.post('/', protect, async (req, res) => {
   try {
     const {
-      seats,
+      seats: rawSeats,
       travelDate,
       vehicleId,
       vehicleName,
@@ -58,7 +54,10 @@ router.post('/', protect, async (req, res) => {
       planPrice,
     } = req.body
 
-    if (!seats || seats.length === 0) return res.status(400).json({ message: 'Please select at least one seat' })
+    const seats = Array.isArray(rawSeats)
+      ? rawSeats.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+      : []
+    if (seats.length === 0) return res.status(400).json({ message: 'Please select at least one seat' })
     if (!travelDate) return res.status(400).json({ message: 'Travel date is required' })
     if (!vehicleId || !VEHICLE_PRICING[vehicleId]) return res.status(400).json({ message: 'Invalid vehicle selected' })
 
@@ -69,12 +68,7 @@ router.post('/', protect, async (req, res) => {
     const start = new Date(travelDate); start.setHours(0, 0, 0, 0)
     const end = new Date(travelDate); end.setHours(23, 59, 59, 999)
 
-    const existing = await Order.find({
-      travelDate: { $gte: start, $lte: end },
-      vehicleId,
-      status: { $ne: 'cancelled' },
-      seats: { $in: seats },
-    })
+    const existing = await Order.findActiveForVehicle(vehicleId, start, end, seats)
 
     if (existing.length > 0) {
       const takenSeats = existing.flatMap((o) => o.seats).filter((s) => seats.includes(s))
@@ -93,7 +87,7 @@ router.post('/', protect, async (req, res) => {
       vehicleName: vehicleName || vehicleId,
       seats,
       travelers: seats.length,
-      travelDate,
+      travelDate: new Date(travelDate),
       amount,
       status: 'confirmed',
       packageId: packageId || null,

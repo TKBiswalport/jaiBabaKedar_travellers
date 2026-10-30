@@ -59,7 +59,7 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if user exists
-    const exists = await User.findOne({ email })
+    const exists = await User.findByEmail(email)
     if (exists) {
       console.log('Registration failed: Email already exists')
       return res.status(400).json({ message: 'Email already registered' })
@@ -93,17 +93,12 @@ router.post('/register', async (req, res) => {
   } catch (err) {
     console.error('Register error:', err)
     
-    // Handle duplicate key error
-    if (err.code === 11000) {
+    // Unique email violation (two sign-ups racing each other)
+    if (err.code === '23505') {
       return res.status(400).json({ message: 'Email already registered' })
     }
-    
-    // Handle validation errors
-    if (err.name === 'ValidationError') {
-      const messages = Object.values(err.errors).map(e => e.message)
-      return res.status(400).json({ message: messages.join(', ') })
-    }
-    
+
+
     res.status(500).json({ message: 'Server error. Please try again later.' })
   }
 })
@@ -120,13 +115,13 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Email and password are required' })
     }
 
-    const user = await User.findOne({ email })
+    const user = await User.findByEmailWithPassword(email)
     if (!user) {
       console.log('Login failed: User not found')
       return res.status(404).json({ message: 'User not found' })
     }
 
-    const isMatch = await user.matchPassword(password)
+    const isMatch = await User.matchPassword(user, password)
     if (!isMatch) {
       console.log('Login failed: Invalid password')
       return res.status(401).json({ message: 'Invalid password' })
@@ -147,13 +142,11 @@ router.post('/login', async (req, res) => {
 router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body
-    const user = await User.findOne({ email })
+    const user = await User.findByEmail(email)
     if (!user) return res.status(404).json({ message: 'No account found with this email' })
 
     const token = crypto.randomBytes(32).toString('hex')
-    user.resetToken = token
-    user.resetTokenExpiry = Date.now() + 60 * 60 * 1000
-    await user.save()
+    await User.setResetToken(user._id, token, new Date(Date.now() + 60 * 60 * 1000))
 
     sendMail({
       from: `"CharDham Yatra 🕉️" <${process.env.EMAIL_USER}>`,
@@ -183,13 +176,15 @@ router.post('/forgot-password', async (req, res) => {
 router.post('/reset-password', async (req, res) => {
   try {
     const { token, password } = req.body
-    const user = await User.findOne({ resetToken: token, resetTokenExpiry: { $gt: Date.now() } })
+    if (!token) return res.status(400).json({ message: 'Invalid or expired token' })
+    if (!password || password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' })
+    }
+
+    const user = await User.findByValidResetToken(token)
     if (!user) return res.status(400).json({ message: 'Invalid or expired token' })
 
-    user.password = password
-    user.resetToken = undefined
-    user.resetTokenExpiry = undefined
-    await user.save()
+    await User.resetPassword(user._id, password)
 
     res.json({ message: 'Password reset successful' })
   } catch (err) {

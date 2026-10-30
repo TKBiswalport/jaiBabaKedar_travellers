@@ -6,7 +6,7 @@ const Review = require('../models/Review')
 // GET /api/reviews — public, fetch all reviews
 router.get('/', async (req, res) => {
   try {
-    const reviews = await Review.find().sort({ createdAt: -1 })
+    const reviews = await Review.findAll()
     res.json(reviews)
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch reviews' })
@@ -51,7 +51,7 @@ router.delete('/:id', adminProtect, async (req, res) => {
       resource_type: review.mediaType === 'video' ? 'video' : 'image',
     })
 
-    await review.deleteOne()
+    await Review.deleteById(review._id)
     res.json({ message: 'Review deleted' })
   } catch (err) {
     console.error('Review delete error:', err.message)

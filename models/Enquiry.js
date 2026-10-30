@@ -1,22 +1,40 @@
-const mongoose = require('mongoose')
+const { query, newId, toDoc, pickColumns, insertRow, updateRow } = require('../config/db')
 
-const PRIVATE_VEHICLE_IDS = ['swift-dzire', 'ertiga', 'innova']
+const COLUMNS = {
+  name: 'name',
+  phone: 'phone',
+  travelDate: 'travel_date',
+  passengers: 'passengers',
+  message: 'message',
+  vehicleId: 'vehicle_id',
+  vehicleName: 'vehicle_name',
+  packageId: 'package_id',
+  packageTitle: 'package_title',
+  packageDuration: 'package_duration',
+  planLabel: 'plan_label',
+  planPrice: 'plan_price',
+  status: 'status',
+  availability: 'availability',
+}
 
-const enquirySchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
-  phone: { type: String, required: true, trim: true },
-  travelDate: { type: Date, required: true },
-  passengers: { type: Number, default: 1, min: 1 },
-  message: { type: String, default: '' },
-  vehicleId: { type: String, enum: PRIVATE_VEHICLE_IDS, required: true },
-  vehicleName: { type: String, required: true },
-  packageId: { type: String, default: null },
-  packageTitle: { type: String, default: null },
-  packageDuration: { type: String, default: null },
-  planLabel: { type: String, default: null },
-  planPrice: { type: String, default: null },
-  status: { type: String, enum: ['pending', 'contacted', 'closed'], default: 'pending' },
-  availability: { type: String, enum: ['pending', 'available', 'not_available'], default: 'pending' },
-}, { timestamps: true })
+const Enquiry = {
+  async create(data) {
+    return toDoc(await insertRow('enquiries', { id: newId(), ...pickColumns(data, COLUMNS) }))
+  },
 
-module.exports = mongoose.model('Enquiry', enquirySchema)
+  async update(id, data) {
+    return toDoc(await updateRow('enquiries', id, pickColumns(data, COLUMNS)))
+  },
+
+  async findAll() {
+    const { rows } = await query('SELECT * FROM enquiries ORDER BY created_at DESC')
+    return rows.map(toDoc)
+  },
+
+  async count(status) {
+    const { rows } = await query('SELECT count(*)::int AS n FROM enquiries WHERE status = $1', [status])
+    return rows[0].n
+  },
+}
+
+module.exports = Enquiry

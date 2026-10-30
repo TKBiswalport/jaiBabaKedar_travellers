@@ -44,19 +44,19 @@ router.post('/login', (req, res) => {
 // GET /api/admin/stats
 router.get('/stats', adminProtect, async (req, res) => {
   try {
-    const [totalUsers, totalOrders, confirmedOrders, revenueData, recentOrders, pendingEnquiries] = await Promise.all([
-      User.countDocuments(),
-      Order.countDocuments(),
-      Order.countDocuments({ status: 'confirmed' }),
-      Order.aggregate([{ $match: { status: 'confirmed' } }, { $group: { _id: null, total: { $sum: '$amount' } } }]),
-      Order.find().sort({ createdAt: -1 }).limit(5).populate('user', 'name email'),
-      Enquiry.countDocuments({ status: 'pending' }),
+    const [totalUsers, totalOrders, confirmedOrders, revenue, recentOrders, pendingEnquiries] = await Promise.all([
+      User.count(),
+      Order.count(),
+      Order.count('confirmed'),
+      Order.confirmedRevenue(),
+      Order.findAllWithUser({ limit: 5 }),
+      Enquiry.count('pending'),
     ])
     res.json({
       totalUsers,
       totalOrders,
       confirmed: confirmedOrders,
-      revenue: revenueData[0]?.total ?? 0,
+      revenue,
       recentOrders,
       pendingEnquiries,
     })
@@ -68,14 +68,15 @@ router.get('/stats', adminProtect, async (req, res) => {
 // GET /api/admin/customers
 router.get('/customers', adminProtect, async (req, res) => {
   try {
-    const users = await User.find().select('-password -resetToken -resetTokenExpiry').sort({ createdAt: -1 })
-    const usersWithOrders = await Promise.all(
-      users.map(async (u) => {
-        const orders = await Order.find({ user: u._id }).sort({ createdAt: -1 })
-        return { ...u.toObject(), orders, orderCount: orders.length }
-      })
-    )
-    res.json(usersWithOrders)
+    const [users, orders] = await Promise.all([User.findAll(), Order.findAll()])
+    const ordersByUser = {}
+    for (const order of orders) {
+      (ordersByUser[order.user] ||= []).push(order)
+    }
+    res.json(users.map((u) => {
+      const userOrders = ordersByUser[u._id] || []
+      return { ...u, orders: userOrders, orderCount: userOrders.length }
+    }))
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch customers' })
   }
@@ -84,9 +85,7 @@ router.get('/customers', adminProtect, async (req, res) => {
 // GET /api/admin/orders
 router.get('/orders', adminProtect, async (req, res) => {
   try {
-    const orders = await Order.find()
-      .populate('user', 'name email mobile')
-      .sort({ createdAt: -1 })
+    const orders = await Order.findAllWithUser()
     res.json(orders)
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch orders' })
@@ -127,7 +126,7 @@ router.patch('/orders/:id', adminProtect, async (req, res) => {
       order.vehicleName = vehicleName
     }
 
-    if (travelDate !== undefined) order.travelDate = travelDate
+    if (travelDate !== undefined) order.travelDate = new Date(travelDate)
 
     if (seats !== undefined) {
       const parsed = Array.isArray(seats)
@@ -155,8 +154,8 @@ router.patch('/orders/:id', adminProtect, async (req, res) => {
       }
     }
 
-    await order.save()
-    const updated = await Order.findById(order._id).populate('user', 'name email mobile')
+    await Order.update(order._id, order)
+    const updated = await Order.findByIdWithUser(order._id)
     res.json(updated)
   } catch (err) {
     console.error('Update order error:', err.message)
@@ -167,8 +166,8 @@ router.patch('/orders/:id', adminProtect, async (req, res) => {
 // DELETE /api/admin/orders/:id
 router.delete('/orders/:id', adminProtect, async (req, res) => {
   try {
-    const order = await Order.findByIdAndDelete(req.params.id)
-    if (!order) return res.status(404).json({ message: 'Order not found' })
+    const deleted = await Order.deleteById(req.params.id)
+    if (!deleted) return res.status(404).json({ message: 'Order not found' })
     res.json({ message: 'Order deleted successfully' })
   } catch (err) {
     res.status(500).json({ message: 'Failed to delete order' })
@@ -178,7 +177,7 @@ router.delete('/orders/:id', adminProtect, async (req, res) => {
 // GET /api/admin/enquiries
 router.get('/enquiries', adminProtect, async (req, res) => {
   try {
-    const enquiries = await Enquiry.find().sort({ createdAt: -1 })
+    const enquiries = await Enquiry.findAll()
     res.json(enquiries)
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch enquiries' })
@@ -206,7 +205,7 @@ router.patch('/enquiries/:id', adminProtect, async (req, res) => {
       if (availability !== 'pending') update.status = 'closed'
     }
 
-    const enquiry = await Enquiry.findByIdAndUpdate(req.params.id, update, { new: true })
+    const enquiry = await Enquiry.update(req.params.id, update)
     if (!enquiry) return res.status(404).json({ message: 'Enquiry not found' })
 
     // Send WhatsApp only when availability is set for the first time
