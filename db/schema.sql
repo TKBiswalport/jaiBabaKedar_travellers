@@ -35,6 +35,13 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE INDEX IF NOT EXISTS orders_user_id_idx ON orders (user_id);
 CREATE INDEX IF NOT EXISTS orders_vehicle_date_idx ON orders (vehicle_id, travel_date);
 
+-- Razorpay payments. payment_status is NULL for bookings made before payments
+-- existed (or edited by admin), 'created' while the customer is paying, 'paid' after.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT CHECK (payment_status IN ('created', 'paid'));
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS razorpay_order_id TEXT UNIQUE;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS razorpay_payment_id TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+
 CREATE TABLE IF NOT EXISTS enquiries (
   id               TEXT PRIMARY KEY,
   name             TEXT NOT NULL,

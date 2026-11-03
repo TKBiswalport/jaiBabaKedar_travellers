@@ -37,11 +37,17 @@ const corsOptions = {
 }
 
 app.use(cors(corsOptions))
-app.use(express.json())
+app.use(express.json({
+  // The payment webhook signature is checked against the exact bytes Razorpay sent.
+  verify: (req, res, buf) => {
+    if (req.originalUrl.startsWith('/api/payments/webhook')) req.rawBody = buf
+  },
+}))
 
 app.use('/api/auth', require('./routes/auth'))
 app.use('/api/dhams', require('./routes/dhams'))
 app.use('/api/orders', require('./routes/orders'))
+app.use('/api/payments', require('./routes/payments'))
 app.use('/api/enquiries', require('./routes/enquiries'))
 app.use('/api/admin', require('./routes/admin'))
 app.use('/api/reviews', require('./routes/reviews'))

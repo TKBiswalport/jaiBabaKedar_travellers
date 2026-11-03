@@ -14,7 +14,22 @@ const COLUMNS = {
   packageDuration: 'package_duration',
   planLabel: 'plan_label',
   planPrice: 'plan_price',
+  paymentStatus: 'payment_status',
+  razorpayOrderId: 'razorpay_order_id',
 }
+
+// How long seats stay reserved while the customer is on the payment screen.
+// Keep this longer than the checkout timeout in the frontend (10 minutes).
+const PAYMENT_HOLD_MINUTES = 15
+
+// An online payment that was started but never finished (and not confirmed by admin).
+// (IS NOT DISTINCT FROM keeps this true/false when payment_status is NULL.)
+const UNFINISHED_PAYMENT = `(payment_status IS NOT DISTINCT FROM 'created' AND status <> 'confirmed')`
+
+// Bookings that still hold their seats: not cancelled, and not an unfinished
+// payment older than PAYMENT_HOLD_MINUTES.
+const HOLDS_SEATS = `status <> 'cancelled'
+  AND NOT (${UNFINISHED_PAYMENT} AND created_at <= now() - interval '${PAYMENT_HOLD_MINUTES} minutes')`
 
 const WITH_USER = `
   SELECT o.*, u.name AS u_name, u.email AS u_email, u.mobile AS u_mobile
@@ -70,20 +85,50 @@ const Order = {
     return rows.map(toOrder)
   },
 
+  // A customer's bookings, without payment attempts they never completed.
   async findByUser(userId) {
-    const { rows } = await query('SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC', [userId])
+    const { rows } = await query(
+      `SELECT * FROM orders WHERE user_id = $1 AND NOT ${UNFINISHED_PAYMENT}
+       ORDER BY created_at DESC`,
+      [userId]
+    )
     return rows.map(toOrder)
   },
 
-  // Non-cancelled orders for a vehicle between `start` and `end`.
+  // Orders holding seats on a vehicle between `start` and `end`.
   // Pass `seats` to get only the orders holding any of those seats.
   async findActiveForVehicle(vehicleId, start, end, seats) {
     const sql = `SELECT * FROM orders
-      WHERE vehicle_id = $1 AND travel_date BETWEEN $2 AND $3 AND status <> 'cancelled'`
+      WHERE vehicle_id = $1 AND travel_date BETWEEN $2 AND $3 AND ${HOLDS_SEATS}`
     const { rows } = seats
       ? await query(`${sql} AND seats && $4::int[]`, [vehicleId, start, end, seats])
       : await query(sql, [vehicleId, start, end])
     return rows.map(toOrder)
+  },
+
+  // Confirms the booking for a Razorpay order. Safe to call twice (browser + webhook).
+  // Pass `userId` to only match that customer's booking.
+  async markPaid(razorpayOrderId, razorpayPaymentId, userId) {
+    const params = [razorpayOrderId, razorpayPaymentId]
+    if (userId) params.push(userId)
+    const { rows } = await query(
+      `UPDATE orders SET status = 'confirmed', payment_status = 'paid',
+         razorpay_payment_id = COALESCE(razorpay_payment_id, $2),
+         paid_at = COALESCE(paid_at, now()), updated_at = now()
+       WHERE razorpay_order_id = $1${userId ? ' AND user_id = $3' : ''}
+       RETURNING *`,
+      params
+    )
+    return toOrder(rows[0])
+  },
+
+  // Removes a booking the customer abandoned on the payment screen (never a paid one).
+  async deleteUnpaid(id, userId) {
+    const { rowCount } = await query(
+      `DELETE FROM orders WHERE id = $1 AND user_id = $2 AND ${UNFINISHED_PAYMENT}`,
+      [id, userId]
+    )
+    return rowCount > 0
   },
 
   async count(status) {
