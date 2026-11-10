@@ -9,14 +9,6 @@ const VEHICLE_PRICING = {
 }
 const SERVICE_FEE = 50
 
-// For payment testing: TEST_BOOKING_PRICE=1 on the server makes every booking cost ₹1 in total.
-// Remove it before taking real bookings, or customers will pay ₹1 too.
-const testPrice = Number(process.env.TEST_BOOKING_PRICE)
-const TEST_BOOKING_PRICE = testPrice > 0 ? testPrice : 0
-if (TEST_BOOKING_PRICE) {
-  console.warn(`TEST_BOOKING_PRICE is set: every booking costs ₹${TEST_BOOKING_PRICE}. Remove it before taking real bookings.`)
-}
-
 const seatLabel = (s) => `S${String(s).padStart(2, '0')}`
 
 // Checks a seat-booking request from the customer and works out the price on the server.
@@ -57,10 +49,9 @@ async function prepareSeatBooking(body) {
   const packagePricePerPerson = packageId && planLabel
     ? getPackagePricePerPerson(packageId, planLabel)
     : null
-  const realAmount = packagePricePerPerson != null
+  const amount = packagePricePerPerson != null
     ? seats.length * packagePricePerPerson
     : seats.length * (VEHICLE_PRICING[vehicleId] + SERVICE_FEE)
-  const amount = TEST_BOOKING_PRICE || realAmount
 
   return {
     booking: {
