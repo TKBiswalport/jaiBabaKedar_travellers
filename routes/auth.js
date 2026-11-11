@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken')
 const crypto = require('crypto')
 const nodemailer = require('nodemailer')
 const User = require('../models/User')
+const { SocialAuthError, socialConfig, verifyGoogle, verifyFacebook } = require('../services/socialAuth')
 
 const generateToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN })
@@ -19,6 +20,28 @@ const sendMail = async (options) => {
     console.error('Email error:', err.message)
   }
 }
+
+// Non-blocking: the account works even if the email can't be sent.
+const sendWelcomeEmail = (name, email) =>
+  sendMail({
+    from: `"CharDham Yatra 🕉️" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: 'Welcome to CharDham Yatra! 🙏',
+    html: `
+      <div style="font-family:sans-serif;max-width:500px;margin:auto;background:#18181b;color:#fff;border-radius:16px;padding:32px;">
+        <h1 style="color:#f97316;text-align:center;">🕉️ CharDhamYatra</h1>
+        <h2 style="text-align:center;">Welcome, ${name}! 🙏</h2>
+        <p style="color:#a1a1aa;text-align:center;">Your sacred journey begins here. We're thrilled to have you as part of our pilgrim family.</p>
+        <p style="color:#a1a1aa;text-align:center;">May your Char Dham Yatra be blessed and fulfilling.</p>
+        <p style="text-align:center;margin-top:24px;color:#f97316;">Jai Badri Vishal 🙏</p>
+      </div>
+    `,
+  })
+
+const authResponse = (user) => ({
+  token: generateToken(user._id),
+  user: { id: user._id, name: user.name, email: user.email, mobile: user.mobile },
+})
 
 // GET /api/auth/health - Health check
 router.get('/health', (req, res) => {
@@ -69,27 +92,9 @@ router.post('/register', async (req, res) => {
     const user = await User.create({ name, mobile, email, password })
     console.log('User created successfully:', user._id)
 
-    // Send welcome email (non-blocking)
-    sendMail({
-      from: `"CharDham Yatra 🕉️" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: 'Welcome to CharDham Yatra! 🙏',
-      html: `
-        <div style="font-family:sans-serif;max-width:500px;margin:auto;background:#18181b;color:#fff;border-radius:16px;padding:32px;">
-          <h1 style="color:#f97316;text-align:center;">🕉️ CharDhamYatra</h1>
-          <h2 style="text-align:center;">Welcome, ${name}! 🙏</h2>
-          <p style="color:#a1a1aa;text-align:center;">Your sacred journey begins here. We're thrilled to have you as part of our pilgrim family.</p>
-          <p style="color:#a1a1aa;text-align:center;">May your Char Dham Yatra be blessed and fulfilling.</p>
-          <p style="text-align:center;margin-top:24px;color:#f97316;">Jai Badri Vishal 🙏</p>
-        </div>
-      `,
-    })
+    sendWelcomeEmail(name, email)
 
-    // Return success response
-    res.status(201).json({
-      token: generateToken(user._id),
-      user: { id: user._id, name: user.name, email: user.email, mobile: user.mobile },
-    })
+    res.status(201).json(authResponse(user))
   } catch (err) {
     console.error('Register error:', err)
     
@@ -119,6 +124,12 @@ router.post('/login', async (req, res) => {
     if (!user) {
       console.log('Login failed: User not found')
       return res.status(404).json({ message: 'User not found' })
+    }
+
+    if (!user.password) {
+      return res.status(400).json({
+        message: 'This account uses Google or Facebook sign-in. Use those buttons below, or "Forgot password?" to set a password.',
+      })
     }
 
     const isMatch = await User.matchPassword(user, password)
@@ -192,5 +203,35 @@ router.post('/reset-password', async (req, res) => {
     res.status(500).json({ message: 'Something went wrong. Please try again.' })
   }
 })
+
+// GET /api/auth/social-config: which "Continue with Google / Facebook" buttons the website shows
+router.get('/social-config', (req, res) => {
+  res.json(socialConfig())
+})
+
+// Signs in (or signs up) with a verified Google / Facebook profile.
+const socialSignIn = (provider, verify, tokenField) => async (req, res) => {
+  try {
+    const profile = await verify(req.body?.[tokenField])
+    const { user, created } = await User.findOrCreateSocial(provider, profile)
+    if (created) sendWelcomeEmail(user.name, user.email)
+    res.status(created ? 201 : 200).json(authResponse(user))
+  } catch (err) {
+    if (err instanceof SocialAuthError) return res.status(err.status).json({ message: err.message })
+    if (err.code === '23505') {
+      return res.status(409).json({
+        message: 'This email is already linked to a different account. Please log in with your email and password.',
+      })
+    }
+    console.error(`${provider} sign-in error:`, err)
+    res.status(500).json({ message: 'Something went wrong. Please try again.' })
+  }
+}
+
+// POST /api/auth/google  { credential }   (from the Google button)
+router.post('/google', socialSignIn('google', verifyGoogle, 'credential'))
+
+// POST /api/auth/facebook  { accessToken }   (from the Facebook login popup)
+router.post('/facebook', socialSignIn('facebook', verifyFacebook, 'accessToken'))
 
 module.exports = router

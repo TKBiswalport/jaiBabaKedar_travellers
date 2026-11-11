@@ -14,6 +14,12 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Google / Facebook sign-in. Those accounts can have no password and no mobile number.
+ALTER TABLE users ALTER COLUMN password DROP NOT NULL;
+ALTER TABLE users ALTER COLUMN mobile DROP NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS facebook_id TEXT UNIQUE;
+
 CREATE TABLE IF NOT EXISTS orders (
   id               TEXT PRIMARY KEY,
   user_id          TEXT NOT NULL REFERENCES users(id),
