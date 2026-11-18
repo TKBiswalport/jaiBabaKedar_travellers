@@ -2,9 +2,12 @@ const twilio = require('twilio')
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
 
-// Normalize Indian phone to E.164 format
+// Normalize a phone number to E.164 format. Numbers without a country code are treated as Indian.
 function toE164(phone) {
-  const digits = phone.replace(/\D/g, '')
+  const raw = String(phone).trim()
+  const digits = raw.replace(/\D/g, '')
+  if (raw.startsWith('+')) return `+${digits}` // already has a country code
+  if (raw.startsWith('00')) return `+${digits.slice(2)}` // 00 = international dialling prefix
   if (digits.startsWith('91') && digits.length === 12) return `+${digits}`
   if (digits.length === 10) return `+91${digits}`
   return `+${digits}`

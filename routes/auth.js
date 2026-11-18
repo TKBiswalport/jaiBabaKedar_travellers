@@ -4,6 +4,7 @@ const crypto = require('crypto')
 const nodemailer = require('nodemailer')
 const User = require('../models/User')
 const { SocialAuthError, socialConfig, verifyGoogle, verifyFacebook } = require('../services/socialAuth')
+const { normalizeMobile } = require('../utils/phone')
 
 const generateToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN })
@@ -68,11 +69,13 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: 'Invalid email format' })
     }
 
-    // Validate mobile format
-    const mobileRegex = /^[6-9]\d{9}$/
-    if (!mobileRegex.test(mobile)) {
+    // Validate mobile: Indian 10-digit, or any country with its +country code
+    const mobileNumber = normalizeMobile(mobile)
+    if (!mobileNumber) {
       console.log('Validation failed: Invalid mobile format')
-      return res.status(400).json({ message: 'Invalid mobile number. Must be 10 digits starting with 6-9' })
+      return res.status(400).json({
+        message: 'Invalid mobile number. Use a 10-digit Indian mobile, or include your country code (e.g. +1 415 555 2671).',
+      })
     }
 
     // Validate password length
@@ -89,7 +92,7 @@ router.post('/register', async (req, res) => {
     }
 
     // Create user
-    const user = await User.create({ name, mobile, email, password })
+    const user = await User.create({ name, mobile: mobileNumber, email, password })
     console.log('User created successfully:', user._id)
 
     sendWelcomeEmail(name, email)
