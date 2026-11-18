@@ -31,7 +31,7 @@ router.post('/create-order', protect, async (req, res) => {
 
   let booking = null
   try {
-    const { error, booking: details } = await prepareSeatBooking(req.body)
+    const { error, booking: details } = await prepareSeatBooking(req.body, req.user)
     if (error) return res.status(error.status).json({ message: error.message })
 
     const amountInPaise = Math.round(details.amount * 100)

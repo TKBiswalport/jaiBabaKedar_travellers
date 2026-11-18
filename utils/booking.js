@@ -9,11 +9,31 @@ const VEHICLE_PRICING = {
 }
 const SERVICE_FEE = 50
 
+// Payment testing: on the server set TEST_BOOKING_PRICE=1 and TEST_BOOKING_EMAILS=you@example.com
+// (several emails separated by commas). Only those accounts pay the test price; everyone else pays
+// the real price. Remove both once testing is done.
+const testEmails = () =>
+  (process.env.TEST_BOOKING_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
+const testPrice = () => {
+  const price = Number(process.env.TEST_BOOKING_PRICE)
+  return price > 0 ? price : 0
+}
+function testPriceFor(email) {
+  if (!testPrice() || !email) return 0
+  return testEmails().includes(String(email).trim().toLowerCase()) ? testPrice() : 0
+}
+if (testPrice() && testEmails().length) {
+  console.warn(`TEST_BOOKING_PRICE is on: ${testEmails().length} test account(s) pay ₹${testPrice()} per booking. Remove it when testing is done.`)
+} else if (testPrice()) {
+  console.warn('TEST_BOOKING_PRICE is set but TEST_BOOKING_EMAILS is empty, so every booking uses the real price.')
+}
+
 const seatLabel = (s) => `S${String(s).padStart(2, '0')}`
 
 // Checks a seat-booking request from the customer and works out the price on the server.
 // Returns { error: { status, message } }, or { booking } ready for Order.create.
-async function prepareSeatBooking(body) {
+// `user` is the logged-in customer (used for the TEST_BOOKING_PRICE check).
+async function prepareSeatBooking(body, user) {
   const {
     seats: rawSeats,
     travelDate,
@@ -49,9 +69,10 @@ async function prepareSeatBooking(body) {
   const packagePricePerPerson = packageId && planLabel
     ? getPackagePricePerPerson(packageId, planLabel)
     : null
-  const amount = packagePricePerPerson != null
+  const realAmount = packagePricePerPerson != null
     ? seats.length * packagePricePerPerson
     : seats.length * (VEHICLE_PRICING[vehicleId] + SERVICE_FEE)
+  const amount = testPriceFor(user?.email) || realAmount
 
   return {
     booking: {
